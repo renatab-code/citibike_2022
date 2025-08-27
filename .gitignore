@@ -1,0 +1,13 @@
+# Ignore raw data
+*.zip
+*.gz
+extracted/
+data/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
