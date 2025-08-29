@@ -11,3 +11,11 @@ data/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Raw CitiBike dumps and large artifacts
+extracted/
+*.zip
+*.parquet
+*_tripdata.csv
+*_tripdata.csv.zip
+*.ipynb_checkpoints/
