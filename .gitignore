@@ -1,3 +1,14 @@
+
+*.zip
+*.gz
+*.7z
+*.tar
+*.tar.gz
+git branch -M main
+
+echo "# CitiBike 2022 Project" > README.md
+
+cat > .gitignore << 'EOF'
 # Ignore raw data
 *.zip
 *.gz
@@ -11,11 +22,3 @@ data/
 .DS_Store
 Thumbs.db
 .vscode/
-
-# Raw CitiBike dumps and large artifacts
-extracted/
-*.zip
-*.parquet
-*_tripdata.csv
-*_tripdata.csv.zip
-*.ipynb_checkpoints/
