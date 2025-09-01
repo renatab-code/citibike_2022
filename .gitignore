@@ -1,24 +1,17 @@
-
 *.zip
 *.gz
 *.7z
 *.tar
 *.tar.gz
-git branch -M main
 
-echo "# CitiBike 2022 Project" > README.md
-
-cat > .gitignore << 'EOF'
-# Ignore raw data
-*.zip
-*.gz
+# Folders with raw/extracted data
 extracted/
-data/
+extracted_backup/
 
-# Jupyter checkpoints
+# (Optional) ignore raw trip CSVs if you don’t want them in Git
+*.csv
+
+# Kepler & Jupyter odds and ends
+.kepler.gl/
 .ipynb_checkpoints/
-
-# OS/editor files
 .DS_Store
-Thumbs.db
-.vscode/
