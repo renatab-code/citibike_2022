@@ -1,118 +1,3 @@
-# dashboard.py
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from pathlib import Path
-import glob
-
-st.set_page_config(
-    page_title="CitiBike 2022 – Interactive Dashboard",
-    page_icon="🚲",
-    layout="wide"
-)
-
-st.title("CitiBike NYC – 2022 Interactive Dashboard")
-st.markdown("""
-This dashboard shows the most frequented start stations, a seasonality view of trips vs. temperature,
-and an interactive Kepler.gl map of origin–destination flows.
-""")
-
-DATA_DIR = Path("extracted/csvs")
-DAILY_FILE = Path("citibike_weather_2022.csv")
-KEPLER_HTML = Path("citibike_kepler_map.html")
-
-@st.cache_data(show_spinner=False)
-def load_daily(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, parse_dates=["date"])
-    df.sort_values("date", inplace=True)
-    # normalize NOAA tenths °C if needed
-    for c in ["TMAX", "TMIN"]:
-        if c in df.columns and df[c].abs().max() > 200:
-            df[c] = df[c] / 10.0
-    df["TMEAN"] = df[["TMAX", "TMIN"]].mean(axis=1)
-    return df
-
-@st.cache_data(show_spinner=True)
-def compute_top20_stations(data_dir: Path) -> pd.DataFrame:
-    usecols = ["start_station_name"]
-    counts = {}
-    files = sorted(glob.glob(str(data_dir / "*.csv")))
-    for f in files:
-        for chunk in pd.read_csv(f, usecols=usecols, chunksize=200_000):
-            vc = chunk["start_station_name"].value_counts(dropna=True)
-            for k, v in vc.items():
-                counts[k] = counts.get(k, 0) + int(v)
-    stations = (pd.Series(counts, name="rides")
-                  .sort_values(ascending=False)
-                  .head(20)
-                  .reset_index()
-                  .rename(columns={"index": "start_station_name"}))
-    return stations
-
-# Sidebar controls
-st.sidebar.header("Controls")
-show_top_n = st.sidebar.slider("Top N stations", 10, 30, 20, step=5)
-
-# === Row 1: Top stations bar ===
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    st.subheader("Top Start Stations (2022)")
-    if not DATA_DIR.exists():
-        st.info("Folder `extracted/csvs` not found. Place monthly trip CSVs there to compute the bar chart.")
-    else:
-        top_stations = compute_top20_stations(DATA_DIR).head(show_top_n)
-        fig_top = px.bar(
-            top_stations,
-            x="rides",
-            y="start_station_name",
-            orientation="h",
-            labels={"rides": "Trips", "start_station_name": "Start Station"},
-            title=f"Top {show_top_n} Start Stations (2022)"
-        )
-        fig_top.update_layout(
-            yaxis=dict(categoryorder="total ascending"),
-            template="plotly_white",
-            height=550,
-            margin=dict(l=140, r=40, t=60, b=40),
-        )
-        st.plotly_chart(fig_top, use_container_width=True)
-
-# === Row 1: Dual-axis line ===
-with col2:
-    st.subheader("Trips vs. Temperature (Daily)")
-    if not DAILY_FILE.exists():
-        st.info("Daily merged file `citibike_weather_2022.csv` not found.")
-    else:
-        df = load_daily(DAILY_FILE)
-        fig_dual = go.Figure()
-        fig_dual.add_trace(go.Scatter(x=df["date"], y=df["trips"], name="Trips", mode="lines"))
-        fig_dual.add_trace(go.Scatter(x=df["date"], y=df["TMEAN"], name="Temp (°C)", mode="lines", yaxis="y2"))
-        fig_dual.update_layout(
-            template="plotly_white",
-            xaxis_title="Date",
-            yaxis=dict(title="Trips"),
-            yaxis2=dict(title="Temp (°C)", overlaying="y", side="right"),
-            height=550
-        )
-        st.plotly_chart(fig_dual, use_container_width=True)
-
-# === Row 2: Kepler.gl map (HTML) ===
-import streamlit as st
-from pathlib import Path
-
-KEPLER_HTML = Path("citibike_kepler_map.html")
-
-st.subheader("Origin–Destination Map (Kepler.gl)")
-if KEPLER_HTML.exists():
-    with open(KEPLER_HTML, "r", encoding="utf-8") as f:
-        html = f.read()
-    # render the saved map inline
-    st.components.v1.html(html, height=700, scrolling=True)
-else:
-    st.info("Map file `citibike_kepler_map.html` not found. Save/export your Kepler map here.")
-
 # dashboard_part2.py
 import streamlit as st
 import pandas as pd
@@ -120,174 +5,276 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
-# ---------- Page config ----------
 st.set_page_config(
     page_title="CitiBike 2022 — Interactive Dashboard (Part 2)",
     page_icon="🚲",
     layout="wide",
 )
 
-# ---------- Files ----------
-DATA_DAILY   = Path("citibike_weather_2022.csv")     # tiny daily file (safe to keep in repo)
-TRIPS_SAMPLE = Path("trips_sample.csv.gz")           # created in Step 3
-KEPLER_HTML  = Path("citibike_kepler_map.html")      # or a lighter export: citibike_kepler_map_light.html
+# -----------------------
+# Files (small, cloud-ready)
+# -----------------------
+DAILY_SMALL   = Path("daily_sample.csv")
+STATIONS_SMALL= Path("top_stations_sample.csv")
+KEPLER_HTML   = Path("citibike_kepler_map.html")
 
-# ---------- Loaders (cached) ----------
 @st.cache_data(show_spinner=False)
-def load_daily() -> pd.DataFrame:
-    df = pd.read_csv(DATA_DAILY, parse_dates=["date"])
-    # Some students scaled NOAA 10x; normalize if you did
-    for c in ["TMAX", "TMIN"]:
-        if c in df and df[c].abs().max() > 200:
-            df[c] = df[c] / 10.0
-    if "TMEAN" not in df and {"TMAX","TMIN"}.issubset(df.columns):
-        df["TMEAN"] = df[["TMAX","TMIN"]].mean(axis=1)
+def load_daily_small(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, parse_dates=["date"])
+    # If you used TMAX/TMIN/TMEAN in notebooks, ensure TMEAN exists:
+    if "TMEAN" not in df.columns and {"TMAX","TMIN"} <= set(df.columns):
+        df["TMEAN"] = df[["TMAX","TMIN"]].mean(axis=1) / 10.0 if df[["TMAX","TMIN"]].abs().max().max() > 200 else df[["TMAX","TMIN"]].mean(axis=1)
     return df
 
 @st.cache_data(show_spinner=False)
-def load_trips_sample() -> pd.DataFrame:
-    dtypes = {
-        "start_station_name": "category",
-        "end_station_name": "category",
-        "rideable_type": "category",
-        "member_casual": "category",
-    }
-    df = pd.read_csv(TRIPS_SAMPLE, dtype=dtypes, parse_dates=["started_at"])
-    return df
+def load_stations_small(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path)
 
-# ---------- Sidebar Navigation ----------
-st.sidebar.header("Navigation")
-pages = [
-    "Intro",
-    "Trips vs Temperature (dual axis)",
-    "Top Start Stations (bar)",
-    "Origin–Destination Map (Kepler.gl)",
-    "Extra Analysis (you choose!)",
-    "Recommendations",
-]
-page = st.sidebar.selectbox("Go to page", pages, index=0)
+# -----------------------
+# Sidebar navigation
+# -----------------------
+st.sidebar.title("Navigation")
+page = st.sidebar.selectbox(
+    "Go to page:",
+    [
+        "Intro",
+        "Trips vs Temperature (Dual-Axis)",
+        "Top Start Stations",
+        "Origin–Destination Map (Kepler.gl)",
+        "Extra Analysis",
+        "Recommendations",
+    ],
+)
 
-# ---------- Page: Intro ----------
+# -----------------------
+# Intro Page
+# -----------------------
 if page == "Intro":
-    st.title("CitiBike NYC — 2022 Interactive Dashboard")
-    st.markdown("""
-**Welcome!** This dashboard explores NYC CitiBike usage in 2022.
-It includes:
-- A seasonal view of trips vs. temperature  
-- Top start stations across the city  
-- An interactive Kepler.gl map of origin–destination flows  
-- A flexible analysis page and recommendations
-""")
-    st.info("Use the left sidebar to switch between pages.")
+    st.title("CitiBike NYC — 2022 Interactive Dashboard (Part 2)")
+    st.markdown(
+        """
+        Welcome! This dashboard explores **CitiBike NYC** ride activity in 2022:
+        - A **seasonality** view of trips vs. temperature (daily).
+        - The **most frequented** start stations.
+        - An interactive **origin–destination** map (Kepler.gl).
+        
+        Use the sidebar to navigate the pages.  
+        Data sources: CitiBike system data (tripdata) and NOAA LaGuardia station.
+        """
+    )
 
-# ---------- Page: Dual axis ----------
-elif page == "Trips vs Temperature (dual axis)":
-    st.title("Trips vs. Temperature (Daily, 2022)")
-    if not DATA_DAILY.exists():
-        st.error(f"Daily file `{DATA_DAILY}` not found.")
+# -----------------------
+# Dual-Axis Page
+# -----------------------
+elif page == "Trips vs Temperature (Dual-Axis)":
+    st.title("Trips vs Temperature (Daily)")
+    if not DAILY_SMALL.exists():
+        st.info("`daily_sample.csv` not found. Please run the notebook step to create it.")
     else:
-        df = load_daily()
+        df = load_daily_small(DAILY_SMALL)
+
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["date"], y=df["trips"],
-                                 name="Trips", mode="lines"))
-        fig.add_trace(go.Scatter(x=df["date"], y=df["TMEAN"],
-                                 name="Temp (°C)", mode="lines", yaxis="y2"))
+        fig.add_trace(go.Scatter(x=df["date"], y=df["trips"],  name="Trips",     mode="lines"))
+        fig.add_trace(go.Scatter(x=df["date"], y=df["TMEAN"], name="Temp (°C)", mode="lines", yaxis="y2"))
+
         fig.update_layout(
             template="plotly_white",
             xaxis_title="Date",
             yaxis=dict(title="Trips"),
             yaxis2=dict(title="Temp (°C)", overlaying="y", side="right"),
-            height=560, margin=dict(t=60, r=40, b=40, l=60)
+            height=560,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Interpretation")
-        st.markdown("""
-Trip volume generally **rises with warmer temperatures** and dips in the coldest months.
-Spikes unrelated to temperature often reflect **weekends, holidays, or special events**.
-""")
+        st.markdown(
+            """
+            **Interpretation:** Warmer months show higher trip counts, while colder periods drop
+            activity notably. This supports seasonal rebalancing and fleet planning—**summer**
+            stock/maintenance should be prioritized in high-demand neighborhoods.
+            """
+        )
 
-# ---------- Page: Top stations ----------
-elif page == "Top Start Stations (bar)":
+# -----------------------
+# Top Stations Page
+# -----------------------
+elif page == "Top Start Stations":
     st.title("Most Popular Start Stations")
-    if not TRIPS_SAMPLE.exists():
-        st.error(f"Sample file `{TRIPS_SAMPLE}` not found. Create it in Step 3.")
+    top_n = st.sidebar.slider("Top N stations", 10, 50, 20, step=5)
+
+    if not STATIONS_SMALL.exists():
+        st.info("`top_stations_sample.csv` not found. Please run the notebook step to create it.")
     else:
-        trips = load_trips_sample()
-        n = st.sidebar.slider("Top N stations", 5, 30, 20, step=5)
-        top = (trips["start_station_name"]
-               .value_counts(dropna=True)
-               .head(n)
-               .rename_axis("start_station_name")
-               .reset_index(name="rides"))
-        fig = px.bar(top, x="rides", y="start_station_name",
-                     orientation="h", labels={"rides": "Trips", "start_station_name": "Start Station"},
-                     template="plotly_white", height=600)
-        fig.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=140, r=40, t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        stations = load_stations_small(STATIONS_SMALL).head(top_n)
+        fig_bar = px.bar(
+            stations,
+            x="rides", y="start_station_name",
+            orientation="h",
+            labels={"rides":"Trips", "start_station_name":"Start Station"},
+            title=f"Top {top_n} Start Stations (2022)",
+        )
+        fig_bar.update_layout(
+            template="plotly_white",
+            height=600,
+            margin=dict(l=160, r=40, t=60, b=40),
+            yaxis=dict(categoryorder="total ascending"),
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        st.subheader("Interpretation")
-        st.markdown("""
-A small set of stations accounts for a **large share of departures**. These hubs likely need
-**more docks/bikes** or **more frequent rebalancing** to reduce shortages.
-""")
+        st.markdown(
+            """
+            **Interpretation:** A handful of start stations capture a large share of rides.
+            These areas are strong candidates for **rebalancing hubs**, **predictive maintenance**,
+            and **dock expansion**.
+            """
+        )
 
-# ---------- Page: Kepler Map ----------
+# -----------------------
+# Kepler Map Page
+# -----------------------
 elif page == "Origin–Destination Map (Kepler.gl)":
-    st.title("Origin–Destination Flows (Kepler.gl)")
-    if not KEPLER_HTML.exists():
-        st.warning(f"Kepler map `{KEPLER_HTML}` not found. Export from Kepler.gl and place it in the repo.")
-    else:
+    st.title("OD Map (Kepler.gl)")
+    if KEPLER_HTML.exists():
         with open(KEPLER_HTML, "r", encoding="utf-8") as f:
             html = f.read()
-        st.components.v1.html(html, height=700, scrolling=True)
+        st.components.v1.html(html, height=740, scrolling=True)
+    else:
+        st.info("Kepler map `citibike_kepler_map.html` not found. Export it and place it in the project root.")
+    st.markdown(
+        """
+        **Interpretation:** OD arcs reveal **corridors** and hotspots (e.g., Midtown↔Downtown).  
+        High-density flows point to **rebalancing** needs and reveal **commuter patterns**.
+        """
+    )
 
-        st.subheader("Interpretation")
-        st.markdown("""
-Flows cluster in **Manhattan & nearby transit corridors**, indicating commute-heavy patterns.
-Long arcs can highlight **cross-borough links** and potential **rebalancing routes**.
-""")
-
-# ---------- Page: Extra analysis ----------
-elif page == "Extra Analysis (you choose!)":
+# -----------------------
+# Extra Analysis Page
+# -----------------------
+elif page == "Extra Analysis":
     st.title("Extra Analysis")
 
-    if not TRIPS_SAMPLE.exists():
-        st.error(f"Sample file `{TRIPS_SAMPLE}` not found.")
+    if not DAILY_SMALL.exists():
+        st.info("`daily_sample.csv` not found. Please create the sample first.")
     else:
-        trips = load_trips_sample()
-        # Example: hourly profile by rider type (if member_casual present)
-        trips["hour"] = trips["started_at"].dt.hour
-        if "member_casual" in trips.columns:
-            hourly = (trips.groupby(["member_casual","hour"])
-                            .size().reset_index(name="rides"))
-            fig = px.line(hourly, x="hour", y="rides", color="member_casual",
-                          template="plotly_white", markers=True, height=520)
-            fig.update_layout(xaxis=dict(dtick=1), yaxis_title="Trips")
-            st.plotly_chart(fig, use_container_width=True)
-            st.markdown("""
-**Members** tend to ride during **commute hours**, while **casual users** push more rides
-in midday/evening—useful for targeted rebalancing schedules.
-""")
-        else:
-            st.info("Column `member_casual` not in sample → replace with a chart you prefer.")
+        df = load_daily_small(DAILY_SMALL)
 
-# ---------- Page: Recommendations ----------
-else:
+        # --- Weekday vs Weekend analysis ---
+        df["weekday"] = df["date"].dt.day_name()
+        df["is_weekend"] = df["weekday"].isin(["Saturday", "Sunday"])
+        trips_by_day = df.groupby("weekday")["trips"].mean().reindex(
+            ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        )
+
+        fig_weekday = px.bar(
+            trips_by_day,
+            x=trips_by_day.index,
+            y=trips_by_day.values,
+            labels={"x":"Day of Week", "y":"Avg Trips"},
+            title="Average Trips by Weekday vs Weekend",
+        )
+        fig_weekday.update_layout(template="plotly_white")
+        st.plotly_chart(fig_weekday, use_container_width=True)
+
+        st.markdown(
+            """
+            **Insight:**  
+            - **Weekdays** (Mon–Fri) show higher and more consistent trip volumes — reflecting commuter patterns.  
+            - **Weekends** see fewer rides overall, but with more variability.  
+            This indicates CitiBike demand is strongly tied to **commuting**, suggesting weekday fleet reliability should be a top priority.
+            """
+        )
+
+# ----------------------------
+# Recommendations Page
+# ----------------------------
+elif page == "Recommendations":
     st.title("Recommendations")
+
     st.markdown("""
-**1. Boost supply at top hubs.**  
-Add docks or dynamic rebalancing where departures concentrate.
+    ### TL;DR
+    NYC Citi Bike demand is highly **concentrated in a few core stations**, **peaks in warm months**, 
+    and shows **clear directional flows** during commute windows. To reduce stockouts and stranded bikes, 
+    we recommend a combination of **targeted rebalancing**, **micro-capacity upgrades**, and **light pricing nudges**, 
+    validated via **short pilots** and tracked with **simple, outcome-based KPIs**.
 
-**2. Temperature-aware planning.**  
-Increase operations in warm months and weekends; scale down in cold weather.
+    ---
+    ### What the data shows (from this dashboard)
+    - **Top Stations:** A small set of stations drive a disproportionate share of rides. These are prime candidates for
+      capacity/rebalancing and for small infrastructure upgrades (more docks/parking corrals).
+    - **Seasonality:** Trips climb with warmer temperatures. Expect spring ramp-up and summer peaks; plan staffing and
+      truck hours accordingly.
+    - **OD Flows:** Kepler.gl arcs highlight **commuter corridors** and **tourist funnels** (e.g., waterfronts/parks). 
+      Morning flows concentrate into central job hubs; evenings reverse the pattern.
 
-**3. Transit integration.**  
-Hubs near subway/ferry terminals show high flow — prioritize these for quick turnarounds.
+    ---
+    ### Action Plan (6–8 weeks)
+    **1) Targeted Rebalancing (Mon–Fri, commute hours)**
+    - Create a **hotlist** of ~20 high-leverage stations (from “Top Stations” + OD flow endpoints).
+    - Run **AM rebalancing 6–9am** (pull from residential edges → feed job-center cores).
+    - Run **PM rebalancing 4–7pm** (reverse).
+    - Use a lightweight rule: _“keep hotlist stations between 30% and 85% fill”_.
 
-**4. Rider-type scheduling.**  
-Use hourly patterns to tailor staffing: commute-hour focus for members, weekend/midday for casuals.
+    **2) Micro-capacity Upgrades**
+    - Add **10–20 docks** at the **top 8–10** chronic stockout/overflow stations (or set up surface corrals).
+    - Coordinate with city/NYC DOT for temporary curbside corrals near stations with repeated overflow (seen on map).
 
-**5. Pilot rebalancing routes.**  
-Use OD arcs and station pairs with chronic net-outs to define efficient truck loops.
-""")
+    **3) Gentle Pricing Nudges (pilot)**
+    - **Offload peaks:** give **–$0.50** or **+5 free minutes** for trips that **start at saturated stations** or **end at under-filled ones**.
+    - **Day-of-week balancing:** weekend bonus minutes to smooth Sunday evening surges back into cores.
+
+    **4) Information Nudges**
+    - In-app “nearest station with 5+ bikes” banners when a user opens an empty station.
+    - Station-level signage: QR codes to the next best station (≤ 3–5 minutes walk).
+
+    ---
+    ### Pilots (fast, measurable)
+    **Pilot A — Hotlist Rebalancing**
+    - **Scope:** 3 weeks, weekdays only, top ~20 stations.
+    - **Success if:** Stockouts (0 bikes) **–30%** and full docks (0 returns) **–25%** during commute periods.
+
+    **Pilot B — Dock Boost**
+    - **Scope:** Add docks/corrals at 8–10 worst offenders.
+    - **Success if:** Overflow events **–40%** and return-denial events **–30%** at treated stations.
+
+    **Pilot C — Pricing Nudge**
+    - **Scope:** 2 weeks, apply bonus minutes or small discounts on targeted start/end stations.
+    - **Success if:** **+10–15%** lift in desired re-routing (measured by share of trips moved to target stations) 
+      without harming conversion.
+
+    ---
+    ### KPIs to Track (weekly)
+    - **Availability:** Share of time stations have **≥ 3 bikes** available (target: **≥ 90%** for hotlist).
+    - **Return Success:** Share of time stations have **≥ 3 empty docks** (target: **≥ 90%**).
+    - **Stockout count** (0-bike minutes) & **Overflow count** (0-dock minutes) per station and time window.
+    - **Nudge effect:** % of rides re-routed to target stations; utilization of bonus minutes.
+    - **Member experience:** ride cancellations/abandonment (proxy: app opens at empty station with no trip started).
+
+    ---
+    ### Ops notes
+    - **Staffing:** align truck hours with **6–9am** and **4–7pm** windows.
+    - **Weather:** pre-stage bikes before hot spells/weekends; scale back on cold/rainy days.
+    - **Events:** load a calendar for parades, street fairs, games; place pop-up corrals accordingly.
+
+    ---
+    ### Risks & Mitigations
+    - **Demand uncertainty:** keep pilots short; roll back underperforming nudges.
+    - **Neighborhood equity:** distribute capacity upgrades across boroughs where possible; publish a fairness score.
+    - **Over-rebalancing costs:** watch **cost per avoided stockout**; stop at diminishing returns.
+
+    ---
+    ### What to build next (data & product)
+    - Add **hour-of-day** ridership aggregates (weather joined) to refine commute windows automatically.
+    - Persist **station-hour features** (avg departures/arrivals, stockout probability) to improve rebalancing heuristics.
+    - Keep collecting **nudge A/B** results to tune bonus size and timing.
+
+    ---
+    **Bottom line:** start with **hotlist rebalancing + small dock boosts** at chronic pain points, and **layer light nudges** 
+    to spread load. Measure weekly, expand only what moves the KPIs.
+    """)
+
+    # Optional: quick KPI placeholders you can wire up later
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Hotlist availability (≥3 bikes)", "—", "target ≥ 90%")
+    c2.metric("Return success (≥3 docks)", "—", "target ≥ 90%")
+    c3.metric("Stockouts (commute hrs)", "—", "target −30%"
+        )
