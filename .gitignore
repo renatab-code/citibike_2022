@@ -1,3 +1,22 @@
+# raw / heavy
+extracted/
+extracted/**
+
+# compressed / archives
+*.zip
+*.gz
+*.7z
+*.tar
+*.tar.gz
+
+# notebooks temp
+.ipynb_checkpoints/
+
+# python cache
+__pycache__/
+
+# local bits we don't want
+requirements.txt.save
 # raw/big data
 extracted/
 extracted/**
