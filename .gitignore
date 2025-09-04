@@ -1,17 +1,13 @@
+# raw/big data
+extracted/
+extracted/**
+
+# large archives
 *.zip
 *.gz
 *.7z
 *.tar
 *.tar.gz
 
-# Folders with raw/extracted data
-extracted/
-extracted_backup/
-
-# (Optional) ignore raw trip CSVs if you don’t want them in Git
-*.csv
-
-# Kepler & Jupyter odds and ends
-.kepler.gl/
+# Jupyter noise
 .ipynb_checkpoints/
-.DS_Store
